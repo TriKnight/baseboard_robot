@@ -7,6 +7,22 @@
 #include "ros/time.h"
 #include <tf/transform_broadcaster.h>
 //Loading config
+
+//Include the Newping Ultrasonic Sensor
+#include "NewPing.h"
+#define SONAR_NUM 3      // Number of sensors.
+#define MAX_DISTANCE 200 // Maximum distance (in cm) to ping.
+// defines pins numbers of Back Ultrasonic Center
+const int trigPin_BCenter = 7;
+const int echoPin_BCenter = 6;
+// defines pins numbers of Back Ultrasonic Left
+const int trigPin_BLeft = 4;
+const int echoPin_BLeft = 5;
+// defines pins numbers of Back Ultrasonic Right
+const int trigPin_BRight = 10;
+const int echoPin_BRight = 11;
+
+//-----------------------------------------
 #include "robotlab_base_config.h"
 // include ROS lib for Range sensor
 #include <sensor_msgs/Range.h>
@@ -33,15 +49,11 @@ sensor_msgs::Range range_msg_3;
 ros::Publisher pub_range_back_center("sona_back_center", &range_msg_1);
 ros::Publisher pub_range_back_left("sona_back_left", &range_msg_2);
 ros::Publisher pub_range_back_right("sona_back_right", &range_msg_3);
-// defines pins numbers of Back Ultrasonic Center
-const int trigPin_BCenter = 7;
-const int echoPin_BCenter = 6;
-// defines pins numbers of Back Ultrasonic Left
-const int trigPin_BLeft = 4;
-const int echoPin_BLeft = 5;
-// defines pins numbers of Back Ultrasonic Right
-const int trigPin_BRight = 10;
-const int echoPin_BRight = 11;
+NewPing sonar[SONAR_NUM] = {   // Sensor object array.
+  NewPing(trigPin_BCenter, echoPin_BCenter, MAX_DISTANCE), // Each sensor's trigger pin, echo pin, and max distance to ping. 
+  NewPing(trigPin_BLeft, echoPin_BLeft, MAX_DISTANCE), 
+  NewPing(trigPin_BRight, echoPin_BRight, MAX_DISTANCE)
+};
 
 
 //Get IMU data
@@ -50,92 +62,43 @@ sensor_msgs::Imu raw_imu_msg;
 ros::Publisher raw_imu_pub("imu/data_raw", &raw_imu_msg);
 //-----------------
 
-void publishSonaBCenter()
+void publishSonaBack()
 { // defines variables
-    long duration;
-    float distance;
+    for (uint8_t i = 0; i < SONAR_NUM; i++) { // Loop through each sensor and display results.
+   
+    float distance_1;
+    float distance_2;
+    float distance_3;
 
-    // Clears the trigPin
-    digitalWrite(trigPin_BCenter, LOW);
-    delayMicroseconds(2);
-
-    // Sets the trigPin on HIGH state for 10 microseconds
-    digitalWrite(trigPin_BCenter, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(trigPin_BCenter, LOW);
-
-    // Reads the echoPin, returns the sound wave travel time in microseconds
-    duration = pulseIn(echoPin_BCenter, HIGH);
-
-    // Calculating the distance (cm) = (duration [us] *air velocity[m/us]/2)
-    distance= duration*0.034/2;
-    //publishing data
-    range_msg_1.range=distance;
+    distance_1=sonar[0].ping_cm();
+    range_msg_1.range=distance_1;
     range_msg_1.header.stamp=nh.now();
     range_msg_1.header.frame_id = "sona_back_center";
     range_msg_1.header.seq = seq;
-    seq = seq + 1;
-
-    pub_range_back_center.publish(&range_msg_1);
-
-}
-void publishSonaBLeft()
-{// defines variables
-    long duration;
-    float distance;
-
-    // Clears the trigPin
-    digitalWrite(trigPin_BLeft, LOW);
-    delayMicroseconds(2);
-
-    // Sets the trigPin on HIGH state for 10 microseconds
-    digitalWrite(trigPin_BLeft, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(trigPin_BLeft, LOW);
-
-    // Reads the echoPin, returns the sound wave travel time in microseconds
-    duration = pulseIn(echoPin_BLeft, HIGH);
-
-    // Calculating the distance (cm) = (duration [us] *air velocity[m/us]/2)
-    distance= duration*0.034/2;
-    //publishing data
-    range_msg_2.range=distance;
+    
+    distance_2=sonar[1].ping_cm();
+    range_msg_2.range=distance_2;
     range_msg_2.header.stamp=nh.now();
     range_msg_2.header.frame_id = "sona_back_left";
     range_msg_2.header.seq = seq;
-    seq = seq + 1;
 
-    pub_range_back_left.publish(&range_msg_2);
-
-}
-
-void publishSonaBRight()
-{// defines variables
-    long duration;
-    float distance;
-
-    // Clears the trigPin
-    digitalWrite(trigPin_BRight, LOW);
-    delayMicroseconds(2);
-
-    // Sets the trigPin on HIGH state for 10 microseconds
-    digitalWrite(trigPin_BRight, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(trigPin_BRight, LOW);
-
-    // Reads the echoPin, returns the sound wave travel time in microseconds
-    duration = pulseIn(echoPin_BRight, HIGH);
-
-    // Calculating the distance (cm) = (duration [us] *air velocity[m/us]/2)
-    distance= duration*0.034/2;
-    //publishing data
-    range_msg_3.range=distance;
+    distance_3=sonar[2].ping_cm();
+    range_msg_3.range=distance_3;
     range_msg_3.header.stamp=nh.now();
     range_msg_3.header.frame_id = "sona_back_right";
     range_msg_3.header.seq = seq;
-    seq = seq + 1;
 
+    seq = seq + 1;
+    pub_range_back_center.publish(&range_msg_1);
+    pub_range_back_left.publish(&range_msg_2);
     pub_range_back_right.publish(&range_msg_3);
+    
+  }
+
+    // Calculating the distance (cm) = (duration [us] *air velocity[m/us]/2)
+    
+    //publishing data
+    
 
 }
 
@@ -171,30 +134,27 @@ void setup()
     nh.advertise(raw_imu_pub);
     //Publish the Back ultrasonic center data
     nh.advertise(pub_range_back_center);
-    pinMode(trigPin_BCenter, OUTPUT); // Sets the trigPin as an Output
-    pinMode(echoPin_BCenter, INPUT); // Sets the echoPin as an Input
+
     range_msg_1.radiation_type = sensor_msgs::Range::ULTRASOUND;
     range_msg_1.field_of_view = 0.26; // FOV of the Ultrasound = 0.26 (rad) ~ 15 (deg)
     range_msg_1.min_range = 0.02; // Min detection object ~0.02 (m)
-    range_msg_1.max_range = 4.5;  // max detection object ~4.5 (m)
+    range_msg_1.max_range = 2.0;  // max detection object ~4.5 (m)
 
       //Publish the Back ultrasonic left data
     nh.advertise(pub_range_back_left);
-    pinMode(trigPin_BLeft, OUTPUT); // Sets the trigPin as an Output
-    pinMode(echoPin_BLeft, INPUT); // Sets the echoPin as an Input
+
     range_msg_2.radiation_type = sensor_msgs::Range::ULTRASOUND;
     range_msg_2.field_of_view = 0.26; // FOV of the Ultrasound = 0.26 (rad) ~ 15 (deg)
     range_msg_2.min_range = 0.02; // Min detection object ~0.02 (m)
-    range_msg_2.max_range = 4.5;  // max detection object ~4.5 (m)
+    range_msg_2.max_range = 2.0;  // max detection object ~4.5 (m)
 
       //Publish the Back ultrasonic right data
     nh.advertise(pub_range_back_right);
-    pinMode(trigPin_BRight, OUTPUT); // Sets the trigPin as an Output
-    pinMode(echoPin_BRight, INPUT); // Sets the echoPin as an Input
+
     range_msg_3.radiation_type = sensor_msgs::Range::ULTRASOUND;
     range_msg_3.field_of_view = 0.26; // FOV of the Ultrasound = 0.26 (rad) ~ 15 (deg)
     range_msg_3.min_range = 0.02; // Min detection object ~0.02 (m)
-    range_msg_3.max_range = 4.5;  // max detection object ~4.5 (m)
+    range_msg_3.max_range = 2.0;  // max detection object ~4.5 (m)
 
 
     while (!nh.connected())
@@ -207,31 +167,19 @@ void setup()
 // Loop data
 void loop()
 {
-    static unsigned long prev_sona_time_1=20;
-    static unsigned long prev_sona_time_2=60;
-    static unsigned long prev_sona_time_3=80;
+    static unsigned long prev_sona_time=20;
+
 
     static unsigned long prev_imu_time = 0;
     static unsigned long prev_debug_time = 0;
     static bool imu_is_initialized;
 
-    if ((millis() - prev_sona_time_3) >= (1000 / SONA_RATE_1))
+    if ((millis() - prev_sona_time) >= (1000 / SONA_RATE_1))
     {
-        publishSonaBRight();
-        prev_sona_time_3 = millis();
+        publishSonaBack();
+        prev_sona_time = millis();
     }
 
-    if ((millis() - prev_sona_time_1) >= (1000 / SONA_RATE_2))
-    {
-        publishSonaBCenter();
-        prev_sona_time_1 = millis();
-    }
-
-    if ((millis() - prev_sona_time_2) >= (1000 / SONA_RATE_3))
-    {
-        publishSonaBLeft();
-        prev_sona_time_2 = millis();
-    }
 
 
     //this block publishes the IMU data based on defined rate
