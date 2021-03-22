@@ -16,11 +16,11 @@
 #define SONAR_NUM 3      // Number of sensors.
 #define MAX_DISTANCE 200 // Maximum distance (in cm) to ping.
 // defines pins numbers of Back Ultrasonic Center
-const int trigPin_BCenter = 7;
-const int echoPin_BCenter = 6;
+const int trigPin_BCenter = 47;
+const int echoPin_BCenter = 48;
 // defines pins numbers of Back Ultrasonic Left
-const int trigPin_BLeft = 4;
-const int echoPin_BLeft = 5;
+const int trigPin_BLeft = 2;
+const int echoPin_BLeft = 3;
 // defines pins numbers of Back Ultrasonic Right
 const int trigPin_BRight = 10;
 const int echoPin_BRight = 11;

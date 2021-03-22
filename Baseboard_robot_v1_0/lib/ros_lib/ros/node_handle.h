@@ -428,13 +428,14 @@ public:
   }
 
   /* Register a new subscriber */
-  bool subscribe(Subscriber_& s)
+  template<typename SubscriberT>
+  bool subscribe(SubscriberT& s)
   {
     for (int i = 0; i < MAX_SUBSCRIBERS; i++)
     {
       if (subscribers[i] == 0) // empty slot
       {
-        subscribers[i] = &s;
+        subscribers[i] = static_cast<Subscriber_*>(&s);
         s.id_ = i + 100;
         return true;
       }
@@ -447,8 +448,16 @@ public:
   bool advertiseService(ServiceServer<MReq, MRes, ObjT>& srv)
   {
     bool v = advertise(srv.pub);
-    bool w = subscribe(srv);
-    return v && w;
+    for (int i = 0; i < MAX_SUBSCRIBERS; i++)
+    {
+      if (subscribers[i] == 0) // empty slot
+      {
+        subscribers[i] = static_cast<Subscriber_*>(&srv);
+        srv.id_ = i + 100;
+        return v;
+      }
+    }
+    return false;
   }
 
   /* Register a new Service Client */
@@ -456,8 +465,16 @@ public:
   bool serviceClient(ServiceClient<MReq, MRes>& srv)
   {
     bool v = advertise(srv.pub);
-    bool w = subscribe(srv);
-    return v && w;
+    for (int i = 0; i < MAX_SUBSCRIBERS; i++)
+    {
+      if (subscribers[i] == 0) // empty slot
+      {
+        subscribers[i] = static_cast<Subscriber_*>(&srv);
+        srv.id_ = i + 100;
+        return v;
+      }
+    }
+    return false;
   }
 
   void negotiateTopics()
@@ -531,7 +548,7 @@ public:
    * Logging
    */
 
-protected:
+private:
   void log(char byte, const char * msg)
   {
     rosserial_msgs::Log l;
@@ -566,7 +583,7 @@ public:
    * Parameters
    */
 
-protected:
+private:
   bool param_recieved;
   rosserial_msgs::RequestParamResponse req_param_resp;
 
