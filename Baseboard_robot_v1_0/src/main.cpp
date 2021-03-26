@@ -3,18 +3,33 @@
 @email: robotlab.vn@gmail.com
 @rosserial library and transform the tf frame
 */
+//-----------------------------------------
+// 1. Include all libraries
+//-----------------------------------------
 #include "ros.h"
 #include "ros/time.h"
 #include <tf/transform_broadcaster.h>
 #include "SimpleKalmanFilter.h"
 #include "std_msgs/String.h"
+#include "robotlab_base_config.h"
+// include ROS lib for Range sensor
+#include <sensor_msgs/Range.h>
+// include ROS lib for publishing IMU
+#include "sensor_msgs/Imu.h"
+//Define hardware typeIMU
+#include "Imu.h" // Include the IMU sensor
+#include "NewPing.h" // Include the ultrasonics sensor
 
-//Loading config
-
-//Include the Newping Ultrasonic Sensor
-#include "NewPing.h"
-#define SONAR_NUM 3      // Number of sensors.
+//-----------------------------------------
+// 2. Define all parameter
+//-----------------------------------------
+// Ultrasonic pararmeter
+#define SONAR_NUM 3     // Number of sensors.
 #define MAX_DISTANCE 200 // Maximum distance (in cm) to ping.
+#define PING_INTERVAL 50 // Looping the ping as 50 ms
+unsigned long pingTimer= 0;
+uint8_t currentSensor = 0;     // Keeps track of which sensor is active.
+
 // defines pins numbers of Back Ultrasonic Center
 const int trigPin_BCenter = 47;
 const int echoPin_BCenter = 48;
@@ -25,24 +40,30 @@ const int echoPin_BLeft = 3;
 const int trigPin_BRight = 10;
 const int echoPin_BRight = 11;
 
-//-----------------------------------------
-#include "robotlab_base_config.h"
-// include ROS lib for Range sensor
-#include <sensor_msgs/Range.h>
-// include ROS lib for publishing IMU
-#include "sensor_msgs/Imu.h"
-//Define hardware typeIMU
-#include "Imu.h"
-#define IMU_PUBLISH_RATE 40 //hz
-#define SONA_RATE 20        //hz
-#define SAFETY_RATE 30      //hz
 
-#define DEBUG_RATE 5
 
+#define SONA_RATE 20  //hz
+#define SAFETY_RATE 5      //hz
+#define DEBUG_RATE 1
+
+// Define sequence of the header
 int32_t seq;
 //ROS node handle
 ros::NodeHandle nh;
+//-------------------------------------------
+                       // defines Ultrasonic paramter
 
+ //Store filtered sensor's value.
+uint8_t leftBSensor;
+uint8_t centerBSensor;
+uint8_t rightBSensor;
+uint8_t rangeSensor[] = {leftBSensor,centerBSensor,rightBSensor}; //define
+uint8_t leftSensorKalman; //Store filtered sensor's value.
+uint8_t centerSensorKalman;
+uint8_t rightSensorKalman;
+//-----------------------------------------
+// 3. Get sensor data in ROS message
+//-----------------------------------------
 //Get Range sensor data
 //----------------------------------
 sensor_msgs::Range range_msg_1;
@@ -54,12 +75,9 @@ ros::Publisher pub_range_back_right("sona_back_right", &range_msg_3);
 NewPing sonar[SONAR_NUM] = {                                 // Sensor object array.
     NewPing(trigPin_BCenter, echoPin_BCenter, MAX_DISTANCE), // Each sensor's trigger pin, echo pin, and max distance to ping.
     NewPing(trigPin_BLeft, echoPin_BLeft, MAX_DISTANCE),
-    NewPing(trigPin_BRight, echoPin_BRight, MAX_DISTANCE)};
+    NewPing(trigPin_BRight, echoPin_BRight, MAX_DISTANCE)
+    };
 
-//Get IMU data
-//----------------------------------
-sensor_msgs::Imu raw_imu_msg;
-ros::Publisher raw_imu_pub("imu/data_raw", &raw_imu_msg);
 //-----------------
 /*
   create Kalman filter objects for the sensors.
@@ -88,90 +106,73 @@ void safetyActivate() // sona_range and safety_range in cm
 
 void safetyDisactivate() // sona_range and safety_range in cm
 {
-    digitalWrite(8, LOW); // turn the LED ON
+    digitalWrite(8, LOW); // turn the LED OFF
     safety_msg.data = safety_disactivate;
     safety.publish(&safety_msg);
 }
 
-void publishSonaBack()
-{                          // defines variables
-    uint8_t centerBSensor; //Store filtered sensor's value.
-    uint8_t leftBSensor;
-    uint8_t rightBSensor;
+void applyKF(){
+    leftSensorKalman = KF_Left.updateEstimate(leftBSensor);
+    centerSensorKalman = KF_Center.updateEstimate(centerBSensor);
+    rightSensorKalman = KF_Right.updateEstimate(rightBSensor);
+}
 
-    uint8_t leftSensorKalman; //Store filtered sensor's value.
-    uint8_t centerSensorKalman;
-    uint8_t rightSensorKalman;
-
+void sensorArray(){
+    leftBSensor = rangeSensor[0];
+    centerBSensor = rangeSensor[1];
+    rightBSensor = rangeSensor[2];
+    
+}
+void getSona()
+{   
     //Average ultrasonic
-
+    static unsigned long prev_time = 0;
     for (uint8_t i = 0; i < SONAR_NUM; i++)
     { // Loop through each sensor and display results.
-
-        centerBSensor = sonar[0].ping_cm();
-        leftBSensor = sonar[1].ping_cm();
-        rightBSensor = sonar[2].ping_cm();
-
-        leftSensorKalman = KF_Left.updateEstimate(leftBSensor);
-        centerSensorKalman = KF_Center.updateEstimate(centerBSensor);
-        rightSensorKalman = KF_Right.updateEstimate(rightBSensor);
+       
+        if((millis() -prev_time) >= pingTimer){
+            pingTimer += PING_INTERVAL * i;
+            rangeSensor[i]=sonar[i].ping_cm();
+            //sonar[currentSensor].timer_stop();
+            prev_time = millis();
+        }
     }
-    // Adding safety feature
-    if (leftSensorKalman <= 10 || centerSensorKalman <= 10 || rightSensorKalman <= 10)
-    {
-        safetyActivate();
-    }
-    else
-    {
-        safetyDisactivate();
-    }
-    // Publish Sona data
-    range_msg_1.range = centerSensorKalman;
-    range_msg_1.header.stamp = nh.now();
-    range_msg_1.header.frame_id = "sona_back_center";
-    range_msg_1.header.seq = seq;
-
-    range_msg_2.range = leftSensorKalman;
-    range_msg_2.header.stamp = nh.now();
-    range_msg_2.header.frame_id = "sona_back_left";
-    range_msg_2.header.seq = seq;
-
-    range_msg_3.range = rightSensorKalman;
-    range_msg_3.header.stamp = nh.now();
-    range_msg_3.header.frame_id = "sona_back_right";
-    range_msg_3.header.seq = seq;
-
-    seq = seq + 1;
-    pub_range_back_center.publish(&range_msg_1);
-    pub_range_back_left.publish(&range_msg_2);
-    pub_range_back_right.publish(&range_msg_3);
-
+    sensorArray();
+    pingTimer =0;
+    prev_time = 0;
     // Calculating the distance (cm) = (duration [us] *air velocity[m/us]/2)
 
     //publishing data
+
 }
+void publishSona(uint8_t leftSensorKalman,uint8_t centerSensorKalman, uint8_t rightSensorKalman){
+    range_msg_1.range = centerSensorKalman;
+    range_msg_2.range = leftSensorKalman;
+    range_msg_3.range = rightSensorKalman;
+    
 
-void publishIMU()
-{
+    range_msg_1.header.stamp = nh.now();
+    range_msg_2.header.stamp = nh.now();
+    range_msg_3.header.stamp = nh.now();
 
-    //pass accelerometer data to imu object
-    raw_imu_msg.linear_acceleration = readAccelerometer();
-
-    //pass gyroscope data to imu object
-    raw_imu_msg.angular_velocity = readGyroscope();
-
-    //pass accelerometer data to imu object
-    raw_imu_msg.header.stamp = nh.now();
-    raw_imu_msg.header.frame_id = "imu_link";
-    raw_imu_msg.header.seq = seq;
+    range_msg_1.header.frame_id = "sona_back_center";
+    range_msg_1.header.seq = seq;
+    seq = seq + 1;
+    range_msg_2.header.frame_id = "sona_back_left";
+    range_msg_2.header.seq = seq;
+    seq = seq + 1;
+    range_msg_3.header.frame_id = "sona_back_right";
+    range_msg_3.header.seq = seq;
     seq = seq + 1;
 
-    //publish raw_imu_msg
-    raw_imu_pub.publish(&raw_imu_msg);
+    pub_range_back_center.publish(&range_msg_1);
+    pub_range_back_left.publish(&range_msg_2);
+    pub_range_back_right.publish(&range_msg_3);
 }
+
 void printDebug()
 {
-}
+};
 //Setup data
 void setup()
 {
@@ -184,8 +185,6 @@ void setup()
     //Publish the Safety Message
     nh.advertise(safety);
 
-    //Publish the IMU data
-    nh.advertise(raw_imu_pub);
     //Publish the Back ultrasonic center data
     nh.advertise(pub_range_back_center);
 
@@ -203,12 +202,12 @@ void setup()
     range_msg_2.max_range = 2.0;      // max detection object ~4.5 (m)
 
     //Publish the Back ultrasonic right data
-    nh.advertise(pub_range_back_right);
+  nh.advertise(pub_range_back_right);
 
-    range_msg_3.radiation_type = sensor_msgs::Range::ULTRASOUND;
-    range_msg_3.field_of_view = 0.26; // FOV of the Ultrasound = 0.26 (rad) ~ 15 (deg)
-    range_msg_3.min_range = 0.02;     // Min detection object ~0.02 (m)
-    range_msg_3.max_range = 2.0;      // max detection object ~4.5 (m)
+  range_msg_3.radiation_type = sensor_msgs::Range::ULTRASOUND;
+  range_msg_3.field_of_view = 0.26; // FOV of the Ultrasound = 0.26 (rad) ~ 15 (deg)
+  range_msg_3.min_range = 0.02;     // Min detection object ~0.02 (m)
+   range_msg_3.max_range = 2.0;      // max detection object ~4.5 (m)
 
     while (!nh.connected())
     {
@@ -221,35 +220,14 @@ void setup()
 void loop()
 {
     static unsigned long prev_sona_time = 0;
-    static unsigned long prev_imu_time = 0;
     static unsigned long prev_debug_time = 0;
-    static bool imu_is_initialized;
-
     //this block publishes the Sona
     if ((millis() - prev_sona_time) >= (1000 / SONA_RATE))
     {
-        publishSonaBack();
-        prev_sona_time = millis();
-    }
-
-    //this block publishes the IMU data based on defined rate
-    if ((millis() - prev_imu_time) >= (1000 / IMU_PUBLISH_RATE))
-    {
-        //sanity check if the IMU is connected
-        if (!imu_is_initialized)
-        {
-            imu_is_initialized = initIMU();
-
-            if (imu_is_initialized)
-                nh.loginfo("IMU Initialized");
-            else
-                nh.logfatal("IMU failed to initialize. Check your IMU connection.");
-        }
-        else
-        {
-            publishIMU();
-        }
-        prev_imu_time = millis();
+        getSona();
+        applyKF();
+        publishSona(leftSensorKalman, centerSensorKalman, rightSensorKalman); // Publish Sona data
+        prev_sona_time = millis(); //set prev_sona_time
     }
 
     //this block displays the encoder readings. change DEBUG to 0 if you don't want to display
