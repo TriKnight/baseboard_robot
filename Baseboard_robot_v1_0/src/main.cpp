@@ -25,8 +25,8 @@
 //-----------------------------------------
 // Ultrasonic pararmeter
 #define SONAR_NUM 3     // Number of sensors.
-#define MAX_DISTANCE 400 // Maximum distance (in cm) to ping.
-#define PING_INTERVAL 60 // Looping the ping as 50 ms
+#define MAX_DISTANCE 220 // Maximum distance (in cm) to ping.
+#define PING_INTERVAL 80 // Looping the ping as 60 ms (must be try and error number >=60ms)
 unsigned long pingTimer= 0;
 uint8_t currentSensor = 0;     // Keeps track of which sensor is active.
 
@@ -191,7 +191,7 @@ void setup()
     range_msg_1.radiation_type = sensor_msgs::Range::ULTRASOUND;
     range_msg_1.field_of_view = 0.26; // FOV of the Ultrasound = 0.26 (rad) ~ 15 (deg)
     range_msg_1.min_range = 0.02;     // Min detection object ~0.02 (m)
-    range_msg_1.max_range = 2.0;      // max detection object ~4.5 (m)
+    range_msg_1.max_range = 2.2;      // max detection object ~4.5 (m)
 
     //Publish the Back ultrasonic left data
     nh.advertise(pub_range_back_left);
@@ -199,7 +199,7 @@ void setup()
     range_msg_2.radiation_type = sensor_msgs::Range::ULTRASOUND;
     range_msg_2.field_of_view = 0.26; // FOV of the Ultrasound = 0.26 (rad) ~ 15 (deg)
     range_msg_2.min_range = 0.02;     // Min detection object ~0.02 (m)
-    range_msg_2.max_range = 2.0;      // max detection object ~4.5 (m)
+    range_msg_2.max_range = 2.2;      // max detection object ~4.5 (m)
 
     //Publish the Back ultrasonic right data
   nh.advertise(pub_range_back_right);
@@ -207,7 +207,7 @@ void setup()
   range_msg_3.radiation_type = sensor_msgs::Range::ULTRASOUND;
   range_msg_3.field_of_view = 0.26; // FOV of the Ultrasound = 0.26 (rad) ~ 15 (deg)
   range_msg_3.min_range = 0.02;     // Min detection object ~0.02 (m)
-   range_msg_3.max_range = 2.0;      // max detection object ~4.5 (m)
+   range_msg_3.max_range = 2.2;      // max detection object ~4.5 (m)
 
     while (!nh.connected())
     {
