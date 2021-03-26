@@ -25,8 +25,8 @@
 //-----------------------------------------
 // Ultrasonic pararmeter
 #define SONAR_NUM 3     // Number of sensors.
-#define MAX_DISTANCE 200 // Maximum distance (in cm) to ping.
-#define PING_INTERVAL 50 // Looping the ping as 50 ms
+#define MAX_DISTANCE 400 // Maximum distance (in cm) to ping.
+#define PING_INTERVAL 60 // Looping the ping as 50 ms
 unsigned long pingTimer= 0;
 uint8_t currentSensor = 0;     // Keeps track of which sensor is active.
 
@@ -133,7 +133,7 @@ void getSona()
         if((millis() -prev_time) >= pingTimer){
             pingTimer += PING_INTERVAL * i;
             rangeSensor[i]=sonar[i].ping_cm();
-            //sonar[currentSensor].timer_stop();
+            sonar[i].timer_stop();
             prev_time = millis();
         }
     }
