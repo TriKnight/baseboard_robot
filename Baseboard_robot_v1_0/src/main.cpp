@@ -24,25 +24,16 @@
 // 2. Define all parameter
 //-----------------------------------------
 // Ultrasonic pararmeter
-#define SONAR_NUM 3     // Number of sensors.
+#define SONAR_NUM 4     // Number of sensors.
 #define MAX_DISTANCE 220 // Maximum distance (in cm) to ping.
-#define PING_INTERVAL 80 // Looping the ping as 60 ms (must be try and error number >=60ms)
-unsigned long pingTimer= 0;
-uint8_t currentSensor = 0;     // Keeps track of which sensor is active.
+#define PING_INTERVAL 33 // Looping the ping as 60 ms (must be try and error number >=60ms)
 
-// defines pins numbers of Back Ultrasonic Center
-const int trigPin_BCenter = 47;
-const int echoPin_BCenter = 48;
-// defines pins numbers of Back Ultrasonic Left
-const int trigPin_BLeft = 2;
-const int echoPin_BLeft = 3;
-// defines pins numbers of Back Ultrasonic Right
-const int trigPin_BRight = 10;
-const int echoPin_BRight = 11;
+unsigned long pingTimer[SONAR_NUM]; // Holds the times when the next ping should happen for each sensor.
+unsigned int cm[SONAR_NUM];         // Where the ping distances are stored.
+uint8_t currentSensor = 0;          // Keeps track of which sensor is active.
 
 
-
-#define SONA_RATE 20  //hz
+#define SONA_RATE 10  //hz
 #define SAFETY_RATE 5      //hz
 #define DEBUG_RATE 1
 
@@ -54,13 +45,16 @@ ros::NodeHandle nh;
                        // defines Ultrasonic paramter
 
  //Store filtered sensor's value.
+uint8_t leftFSensor;
+uint8_t rightFSensor;
 uint8_t leftBSensor;
-uint8_t centerBSensor;
 uint8_t rightBSensor;
-uint8_t rangeSensor[] = {leftBSensor,centerBSensor,rightBSensor}; //define
-uint8_t leftSensorKalman; //Store filtered sensor's value.
-uint8_t centerSensorKalman;
-uint8_t rightSensorKalman;
+uint8_t rangeSensor[] = {leftFSensor, rightFSensor, leftBSensor, rightBSensor}; //define
+
+uint8_t leftFKalman; //Store filtered sensor's value.
+uint8_t rightFKalman;
+uint8_t leftBKalman;
+uint8_t rightBKalman;
 //-----------------------------------------
 // 3. Get sensor data in ROS message
 //-----------------------------------------
@@ -69,145 +63,67 @@ uint8_t rightSensorKalman;
 sensor_msgs::Range range_msg_1;
 sensor_msgs::Range range_msg_2;
 sensor_msgs::Range range_msg_3;
-ros::Publisher pub_range_back_center("sona_back_center", &range_msg_1);
-ros::Publisher pub_range_back_left("sona_back_left", &range_msg_2);
-ros::Publisher pub_range_back_right("sona_back_right", &range_msg_3);
-NewPing sonar[SONAR_NUM] = {                                 // Sensor object array.
-    NewPing(trigPin_BCenter, echoPin_BCenter, MAX_DISTANCE), // Each sensor's trigger pin, echo pin, and max distance to ping.
-    NewPing(trigPin_BLeft, echoPin_BLeft, MAX_DISTANCE),
-    NewPing(trigPin_BRight, echoPin_BRight, MAX_DISTANCE)
-    };
+sensor_msgs::Range range_msg_4;
+ros::Publisher pub_range_front_left("sona_front_left", &range_msg_1);
+ros::Publisher pub_range_front_right("sona_front_right", &range_msg_2);
+ros::Publisher pub_range_back_left("sona_back_left", &range_msg_3);
+ros::Publisher pub_range_back_right("sona_back_right", &range_msg_4);
 
-//-----------------
-/*
-  create Kalman filter objects for the sensors.
-   SimpleKalmanFilter(e_mea, e_est, q);
-   e_mea: Measurement Uncertainty
-   e_est: Estimation Uncertainty
-   q: Process Noise
-*/
-//--------- Safety Feature -----------
-std_msgs::String safety_msg;
-ros::Publisher safety("safety_sona", &safety_msg);
-char safety_activate[16] = "safety_activate";
-char safety_disactivate[19] = "safety_disactivate";
+NewPing sonar[SONAR_NUM] = {     // Sensor object array.
+  NewPing(4, 5, MAX_DISTANCE), // Each sensor's trigger pin, echo pin, and max distance to ping.
+  NewPing(6, 7, MAX_DISTANCE),
+  NewPing(10, 11, MAX_DISTANCE),
+  NewPing(24, 25, MAX_DISTANCE)
+  
+};
+
 
 //-------- Kalman Filter ------------
-SimpleKalmanFilter KF_Left(2, 2, 0.1);
-SimpleKalmanFilter KF_Center(2, 2, 0.1);
-SimpleKalmanFilter KF_Right(2, 2, 0.1);
+SimpleKalmanFilter KF_FLeft(2, 2, 0.1);
+SimpleKalmanFilter KF_FRight(2, 2, 0.1);
+SimpleKalmanFilter KF_BLeft(2, 2, 0.1);
+SimpleKalmanFilter KF_BRight(2, 2, 0.1);
 
-void safetyActivate() // sona_range and safety_range in cm
-{
-    digitalWrite(8, HIGH); // turn the LED ON
-    safety_msg.data = safety_activate;
-    safety.publish(&safety_msg);
+void applyKF(uint8_t leftFSensor, uint8_t rightFSensor, uint8_t leftBSensor, uint8_t rightBSensor){
+    leftFKalman = KF_FLeft.updateEstimate(leftFSensor);
+    rightFKalman = KF_FRight.updateEstimate(rightFSensor);
+    leftBKalman = KF_BLeft.updateEstimate(leftBSensor);
+    rightBKalman = KF_BRight.updateEstimate(rightBSensor);
 }
 
-void safetyDisactivate() // sona_range and safety_range in cm
-{
-    digitalWrite(8, LOW); // turn the LED OFF
-    safety_msg.data = safety_disactivate;
-    safety.publish(&safety_msg);
-}
+void setup() {
+  Serial.begin(115200);
+  pingTimer[0] = millis() + 75;           // First ping starts at 75ms, gives time for the Arduino to chill before starting.
+  for (uint8_t i = 1; i < SONAR_NUM; i++) // Set the starting time for each sensor.
+    pingTimer[i] = pingTimer[i - 1] + PING_INTERVAL;
+  //Initial ROS node and set baudrate
+  nh.initNode();
+  nh.getHardware()->setBaud(57600);
+  //Publish the Back ultrasonic center data
+  nh.advertise(pub_range_front_left);
+  range_msg_1.radiation_type = sensor_msgs::Range::ULTRASOUND;
+  range_msg_1.field_of_view = 0.26; // FOV of the Ultrasound = 0.26 (rad) ~ 15 (deg)
+  range_msg_1.min_range = 0.02;     // Min detection object ~0.02 (m)
+  range_msg_1.max_range = 2.2;      // max detection object ~4.5 (m)
+  
+  nh.advertise(pub_range_front_right);
+  range_msg_2.radiation_type = sensor_msgs::Range::ULTRASOUND;
+  range_msg_2.field_of_view = 0.26; // FOV of the Ultrasound = 0.26 (rad) ~ 15 (deg)
+  range_msg_2.min_range = 0.02;     // Min detection object ~0.02 (m)
+  range_msg_2.max_range = 2.2;      // max detection object ~4.5 (m)
 
-void applyKF(){
-    leftSensorKalman = KF_Left.updateEstimate(leftBSensor);
-    centerSensorKalman = KF_Center.updateEstimate(centerBSensor);
-    rightSensorKalman = KF_Right.updateEstimate(rightBSensor);
-}
-
-void sensorArray(){
-    leftBSensor = rangeSensor[0];
-    centerBSensor = rangeSensor[1];
-    rightBSensor = rangeSensor[2];
-    
-}
-void getSona()
-{   
-    //Average ultrasonic
-    static unsigned long prev_time = 0;
-    for (uint8_t i = 0; i < SONAR_NUM; i++)
-    { // Loop through each sensor and display results.
-       
-        if((millis() -prev_time) >= pingTimer){
-            pingTimer += PING_INTERVAL * i;
-            rangeSensor[i]=sonar[i].ping_cm();
-            sonar[i].timer_stop();
-            prev_time = millis();
-        }
-    }
-    sensorArray();
-    pingTimer =0;
-    prev_time = 0;
-    // Calculating the distance (cm) = (duration [us] *air velocity[m/us]/2)
-
-    //publishing data
-
-}
-void publishSona(uint8_t leftSensorKalman,uint8_t centerSensorKalman, uint8_t rightSensorKalman){
-    range_msg_1.range = centerSensorKalman;
-    range_msg_2.range = leftSensorKalman;
-    range_msg_3.range = rightSensorKalman;
-    
-
-    range_msg_1.header.stamp = nh.now();
-    range_msg_2.header.stamp = nh.now();
-    range_msg_3.header.stamp = nh.now();
-
-    range_msg_1.header.frame_id = "sona_back_center";
-    range_msg_1.header.seq = seq;
-    seq = seq + 1;
-    range_msg_2.header.frame_id = "sona_back_left";
-    range_msg_2.header.seq = seq;
-    seq = seq + 1;
-    range_msg_3.header.frame_id = "sona_back_right";
-    range_msg_3.header.seq = seq;
-    seq = seq + 1;
-
-    pub_range_back_center.publish(&range_msg_1);
-    pub_range_back_left.publish(&range_msg_2);
-    pub_range_back_right.publish(&range_msg_3);
-}
-
-void printDebug()
-{
-};
-//Setup data
-void setup()
-{
-    // Setting harware
-    pinMode(8, OUTPUT); // Red LED Enable
-
-    //Initial ROS node and set baudrate
-    nh.initNode();
-    nh.getHardware()->setBaud(57600);
-    //Publish the Safety Message
-    nh.advertise(safety);
-
-    //Publish the Back ultrasonic center data
-    nh.advertise(pub_range_back_center);
-
-    range_msg_1.radiation_type = sensor_msgs::Range::ULTRASOUND;
-    range_msg_1.field_of_view = 0.26; // FOV of the Ultrasound = 0.26 (rad) ~ 15 (deg)
-    range_msg_1.min_range = 0.02;     // Min detection object ~0.02 (m)
-    range_msg_1.max_range = 2.2;      // max detection object ~4.5 (m)
-
-    //Publish the Back ultrasonic left data
-    nh.advertise(pub_range_back_left);
-
-    range_msg_2.radiation_type = sensor_msgs::Range::ULTRASOUND;
-    range_msg_2.field_of_view = 0.26; // FOV of the Ultrasound = 0.26 (rad) ~ 15 (deg)
-    range_msg_2.min_range = 0.02;     // Min detection object ~0.02 (m)
-    range_msg_2.max_range = 2.2;      // max detection object ~4.5 (m)
-
-    //Publish the Back ultrasonic right data
-  nh.advertise(pub_range_back_right);
-
+  nh.advertise(pub_range_back_left);
   range_msg_3.radiation_type = sensor_msgs::Range::ULTRASOUND;
   range_msg_3.field_of_view = 0.26; // FOV of the Ultrasound = 0.26 (rad) ~ 15 (deg)
   range_msg_3.min_range = 0.02;     // Min detection object ~0.02 (m)
-   range_msg_3.max_range = 2.2;      // max detection object ~4.5 (m)
+  range_msg_3.max_range = 2.2;      // max detection object ~4.5 (m)
+
+
+  nh.advertise(pub_range_back_right);
+  range_msg_4.radiation_type = sensor_msgs::Range::ULTRASOUND;
+  range_msg_4.field_of_view = 0.26; // FOV of the Ultrasound = 0.26 (rad) ~ 15 (deg)
+  range_msg_4.min_range = 0.02;     // Min detection object ~0.02 (m)
+  range_msg_4.max_range = 2.2;      // max detection object ~4.5 (m)
 
     while (!nh.connected())
     {
@@ -215,30 +131,66 @@ void setup()
     }
     nh.loginfo("ROBOTLAB CONNECTED");
     delay(1);
+
 }
-// Loop data
-void loop()
-{
+
+void echoCheck() { // If ping received, set the sensor distance to array.
+  if (sonar[currentSensor].check_timer())
+    cm[currentSensor] = sonar[currentSensor].ping_result / US_ROUNDTRIP_CM;
+}
+
+void oneSensorCycle() { // Sensor ping cycle complete, do something with the results.
     static unsigned long prev_sona_time = 0;
-    static unsigned long prev_debug_time = 0;
     //this block publishes the Sona
     if ((millis() - prev_sona_time) >= (1000 / SONA_RATE))
     {
-        getSona();
-        applyKF();
-        publishSona(leftSensorKalman, centerSensorKalman, rightSensorKalman); // Publish Sona data
-        prev_sona_time = millis(); //set prev_sona_time
-    }
+  // The following code would be replaced with your code that does something with the ping results.
+  for (uint8_t i = 0; i < SONAR_NUM; i++) {
+    rangeSensor[i] = cm[i];
+  }
+    applyKF(rangeSensor[0], rangeSensor[1], rangeSensor[2], rangeSensor[3]);
+    range_msg_1.range = leftFKalman;
+    range_msg_2.range = rightFKalman;
+    range_msg_3.range = leftBKalman;
+    range_msg_4.range = rightBKalman;
 
-    //this block displays the encoder readings. change DEBUG to 0 if you don't want to display
-    if (DEBUG)
-    {
-        if ((millis() - prev_debug_time) >= (1000 / DEBUG_RATE))
-        {
-            //printDebug();
-            prev_debug_time = millis();
-        }
+    range_msg_1.header.stamp = nh.now();
+    range_msg_2.header.stamp = nh.now();
+    range_msg_3.header.stamp = nh.now();
+    range_msg_4.header.stamp = nh.now();
+
+    range_msg_1.header.frame_id = "sona_front_left";
+    range_msg_1.header.seq = seq;
+    seq = seq + 1;
+    range_msg_2.header.frame_id = "sona_front_right";
+    range_msg_2.header.seq = seq;
+    seq = seq + 1;
+    range_msg_3.header.frame_id = "sona_back_left";
+    range_msg_3.header.seq = seq;
+    seq = seq + 1;
+    range_msg_4.header.frame_id = "sona_back_right";
+    range_msg_4.header.seq = seq;
+    seq = seq + 1;
+
+    pub_range_front_left.publish(&range_msg_1);
+    pub_range_front_right.publish(&range_msg_2);
+    pub_range_back_left.publish(&range_msg_3);
+    pub_range_back_right.publish(&range_msg_4);
+    
+    prev_sona_time = millis(); //set prev_sona_time
+}
+}
+void loop() {
+  for (uint8_t i = 0; i < SONAR_NUM; i++) { // Loop through all the sensors.
+    if (millis() >= pingTimer[i]) {         // Is it this sensor's time to ping?
+      pingTimer[i] += PING_INTERVAL * SONAR_NUM;  // Set next time this sensor will be pinged.
+      if (i == 0 && currentSensor == SONAR_NUM - 1) oneSensorCycle(); // Sensor ping cycle complete, do something with the results.
+      sonar[currentSensor].timer_stop();          // Make sure previous timer is canceled before starting a new ping (insurance).
+      currentSensor = i;                          // Sensor being accessed.
+      cm[currentSensor] = 0;                      // Make distance zero in case there's no ping echo for this sensor.
+      sonar[currentSensor].ping_timer(echoCheck); // Do the ping (processing continues, interrupt will call echoCheck to look for echo).
     }
-    //call all the callbacks waiting to be called
-    nh.spinOnce();
+  }
+   nh.spinOnce();
+  // Other code that *DOESN'T* analyze ping results can go here.
 }
